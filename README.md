@@ -327,8 +327,8 @@ const S = {
 /* =========================================================
    MARKUP Y COMISIONES
 ========================================================= */
-const CLP_MARKUP   = 0.10;
-const CLP_FALLBACK = 920;
+const CLP_MARKUP   = 10;   // +10 pesos sobre la tasa del día (ej: 950 → 960)
+const CLP_FALLBACK = 950;
 
 function commCLP(clp) { return clp < 500000 ? 0.05 : 0.08; }
 
