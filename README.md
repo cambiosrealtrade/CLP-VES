@@ -106,6 +106,9 @@
     .country { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
     .country.cl { color: var(--cl); }
     .country.ve { color: var(--ve); }
+
+    .badge-group { display: flex; align-items: center; gap: 6px; }
+
     .badge {
       font-family: 'DM Mono', monospace; font-size: 11px;
       padding: 5px 13px; border-radius: 100px;
@@ -113,6 +116,13 @@
     }
     .badge.cl { background: var(--cl); box-shadow: 0 0 14px rgba(230,57,70,0.5); }
     .badge.ve { background: var(--ve); box-shadow: 0 0 14px rgba(91,156,246,0.5); }
+    .badge.comm {
+      background: rgba(255,255,255,0.10);
+      border: 1px solid rgba(255,255,255,0.18);
+      color: var(--ink);
+      box-shadow: none;
+      font-size: 10px;
+    }
 
     .block  { display: flex; flex-direction: column; gap: 5px; }
     .blabel {
@@ -145,12 +155,6 @@
       color: var(--ink); word-break: break-all;
     }
     .ves-unit { font-family: 'DM Mono', monospace; font-size: 15px; font-weight: 600; color: var(--muted); }
-
-    .cross {
-      font-family: 'DM Mono', monospace; font-size: 11px;
-      color: var(--muted); padding-top: 10px;
-      border-top: 1px solid rgba(255,255,255,0.07);
-    }
 
     .bar-cl { height: 3px; background: linear-gradient(90deg, transparent, var(--cl), #ff8a92, var(--cl), transparent); }
     .bar-ve { height: 3px; background: linear-gradient(90deg, transparent, var(--ve), #a5c8ff, var(--ve), transparent); }
@@ -205,7 +209,10 @@
           <span class="flag">🇨🇱</span>
           <span class="country cl">Chile</span>
         </div>
-        <span class="badge cl" id="badge" style="display:none;">—%</span>
+        <div class="badge-group">
+          <span class="badge comm" id="badge-comm-clp" style="display:none;"></span>
+          <span class="badge cl"   id="badge-clp"      style="display:none;">CLP</span>
+        </div>
       </div>
 
       <div class="block">
@@ -239,7 +246,7 @@
         </div>
       </div>
 
-      <div class="cross" id="cross-rate">1 CLP ≈ — VES · USDT paralelo</div>
+
 
     </div>
   </div>
@@ -261,7 +268,10 @@
           <span class="flag">🇻🇪</span>
           <span class="country ve">Venezuela</span>
         </div>
-        <span class="badge ve" id="badge-ves" style="display:none;">—%</span>
+        <div class="badge-group">
+          <span class="badge comm" id="badge-comm-ves" style="display:none;"></span>
+          <span class="badge ve"   id="badge-ves"      style="display:none;">Bs.</span>
+        </div>
       </div>
 
       <div class="block">
@@ -295,7 +305,7 @@
         </div>
       </div>
 
-      <div class="cross" id="cross-rate-ves">1 VES ≈ — CLP · USDT paralelo</div>
+
 
     </div>
   </div>
@@ -307,17 +317,25 @@
    STATE
 ========================================================= */
 const S = {
-  usdtVes : null,   // USDT/VES paralelo  — ve.dolarapi.com
-  usdClp  : null,   // USD/CLP fijo       — 920
-  usdtClp : null,   // USDT/CLP en vivo   — Binance (para VES→CLP)
-  clpVes  : null,   // cross: 1 CLP = X VES
+  usdtVes : null,
+  usdClp  : null,
+  usdtClp : null,
+  clpVes  : null,
   ready   : false,
 };
 
 /* =========================================================
-   FETCH USDT/VES — ve.dolarapi.com/v1/dolares/paralelo
+   MARKUP Y COMISIONES
 ========================================================= */
-async function fetchUSDT() {
+const CLP_MARKUP   = 0.10;
+const CLP_FALLBACK = 920;
+
+function commCLP(clp) { return clp < 500000 ? 0.05 : 0.08; }
+
+/* =========================================================
+   FETCH USDT/VES
+========================================================= */
+async function fetchUSDTVES() {
   const r = await fetch('https://ve.dolarapi.com/v1/dolares/paralelo', { cache: 'no-cache' });
   if (!r.ok) throw new Error();
   const d = await r.json();
@@ -327,54 +345,33 @@ async function fetchUSDT() {
 }
 
 /* =========================================================
-   TASA CLP FIJA
-========================================================= */
-const CLP_RATE = 920; // 1 USD = 920 CLP (fijo)
-
-/* =========================================================
-   FETCH USDT/CLP — Binance (para VES → CLP)
-   Fallback: CoinGecko
+   FETCH USDT/CLP — Binance → CoinGecko → fallback
 ========================================================= */
 async function fetchUSDTCLP() {
-  // Fuente 1 — Binance
   try {
     const r = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=USDTCLP', { cache: 'no-cache' });
-    if (r.ok) {
-      const d = await r.json();
-      const v = Number(d?.price ?? 0);
-      if (v > 1) return v;
-    }
+    if (r.ok) { const d = await r.json(); const v = Number(d?.price ?? 0); if (v > 1) return v + CLP_MARKUP; }
   } catch (_) {}
-
-  // Fuente 2 — CoinGecko
   try {
     const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=clp', { cache: 'no-cache' });
-    if (r.ok) {
-      const d = await r.json();
-      const v = Number(d?.tether?.clp ?? 0);
-      if (v > 1) return v;
-    }
+    if (r.ok) { const d = await r.json(); const v = Number(d?.tether?.clp ?? 0); if (v > 1) return v + CLP_MARKUP; }
   } catch (_) {}
-
-  return CLP_RATE; // fallback al fijo
+  return CLP_FALLBACK + CLP_MARKUP;
 }
 
 /* =========================================================
    LOAD
 ========================================================= */
 async function loadRates() {
-  const [usdtRes, usdtClpRes] = await Promise.allSettled([fetchUSDT(), fetchUSDTCLP()]);
+  const [vesRes, clpRes] = await Promise.allSettled([fetchUSDTVES(), fetchUSDTCLP()]);
 
-  if (usdtRes.status === 'fulfilled')    S.usdtVes = usdtRes.value;
-  S.usdClp  = CLP_RATE;  // fijo para CLP → VES
-  S.usdtClp = (usdtClpRes.status === 'fulfilled') ? usdtClpRes.value : CLP_RATE;
+  if (vesRes.status === 'fulfilled') S.usdtVes = vesRes.value;
+  const liveClp = (clpRes.status === 'fulfilled') ? clpRes.value : CLP_FALLBACK + CLP_MARKUP;
+  S.usdClp  = liveClp;
+  S.usdtClp = liveClp;
 
   if (S.usdtVes && S.usdClp) {
     S.clpVes = S.usdtVes / S.usdClp;
-    document.getElementById('cross-rate').textContent =
-      `1 CLP ≈ ${fmt(S.clpVes, 6)} VES · USDT paralelo · ve.dolarapi.com`;
-    document.getElementById('cross-rate-ves').textContent =
-      `1 VES ≈ ${fmt(S.usdtClp / S.usdtVes, 4)} CLP · Binance USDT/CLP`;
   }
 
   S.ready = true;
@@ -384,14 +381,27 @@ async function loadRates() {
 }
 
 /* =========================================================
+   HELPER: mostrar/ocultar badges
+========================================================= */
+function showBadges(currId, commId, currLabel, commPct, visible) {
+  const bCurr = document.getElementById(currId);
+  const bComm = document.getElementById(commId);
+  if (visible) {
+    bCurr.textContent = currLabel;
+    bCurr.style.display = 'inline-flex';
+    bComm.textContent = `${(commPct * 100).toFixed(0)}% comisión`;
+    bComm.style.display = 'inline-flex';
+  } else {
+    bCurr.style.display = 'none';
+    bComm.style.display = 'none';
+  }
+}
+
+/* =========================================================
    CLP → VES
-   USD  = CLP ÷ usdClp
-   VES  = USD × usdtVes × (1 − comisión)
-   Comisión: < 500.000 CLP → 5% | ≥ 500.000 → 8%
 ========================================================= */
 function calculate() {
   if (!S.ready) return;
-
   const raw   = document.getElementById('amount').value;
   const clp   = parseFloat(raw);
   const empty = !raw || isNaN(clp) || clp <= 0;
@@ -399,10 +409,12 @@ function calculate() {
   const elVes = document.getElementById('result-ves');
   const elUSD = document.getElementById('local-clp-usd');
 
+  showBadges('badge-clp', 'badge-comm-clp', 'CLP', commCLP(clp || 0), !empty);
+
   if (empty) { elVes.textContent = '——'; elUSD.textContent = '——'; return; }
 
   const usd  = clp / S.usdClp;
-  const comm = clp < 500000 ? 0.05 : 0.08;
+  const comm = commCLP(clp);
   const ves  = usd * S.usdtVes * (1 - comm);
 
   elUSD.textContent = fmt(usd, 2);
@@ -411,18 +423,17 @@ function calculate() {
 
 /* =========================================================
    VES → CLP
-   USD  = VES ÷ usdtVes
-   CLP  = USD × usdClp × (1 − 0.13)
 ========================================================= */
 function calculateVES() {
   if (!S.ready) return;
-
   const raw   = document.getElementById('amount-ves').value;
   const ves   = parseFloat(raw);
   const empty = !raw || isNaN(ves) || ves <= 0;
 
   const elCLP = document.getElementById('result-clp');
   const elUSD = document.getElementById('local-ves-usd');
+
+  showBadges('badge-ves', 'badge-comm-ves', 'Bs.', 0.13, !empty);
 
   if (empty) { elCLP.textContent = '——'; elUSD.textContent = '——'; return; }
 
